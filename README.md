@@ -55,3 +55,9 @@ https://juejin.cn/post/7182833413835980859
 ## Download 版本
 
 更新最適配的版本 mpv 0.35.1 + ffmpeg 6.0
+
+## Diff patch
+
+`diff -u a.file b.file > patch.diff`
+`diff -Nur ./src/mpv-0.35.1-b/ ./src/mpv-0.35.1/ > patch-mpv.diff`
+`rm -rf scratch-ios scratch-tv && ./compile.sh -p tv -e development`

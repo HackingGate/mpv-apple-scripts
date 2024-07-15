@@ -1,0 +1,193 @@
+--- ./src/mpv-0.35.1/video/out/opengl/hwdec_ios.m
++++ ./src/mpv-0.35.1/video/out/opengl/hwdec_ios.m
+@@ -144,7 +144,7 @@
+ 
+     for (int n = 0; n < p->desc.num_planes; n++) {
+         p->desc.planes[n] = find_la_variant(mapper->ra, p->desc.planes[n]);
+-        if (!p->desc.planes[n] || p->desc.planes[n]->ctype != RA_CTYPE_UNORM) {
++        if (!p->desc.planes[n]) {
+             MP_ERR(mapper, "Format unsupported.\n");
+             return -1;
+         }
+
+
+--- ./src/mpv-0.35.1/video/out/gpu/video.c
++++ ./src/mpv-0.35.1/video/out/gpu/video.c
+@@ -366,6 +366,8 @@
+     .opts = (const m_option_t[]) {
+         {"gpu-dumb-mode", OPT_CHOICE(dumb_mode,
+             {"auto", 0}, {"yes", 1}, {"no", -1})},
++        {"gpu-deint-shader", OPT_CHOICE(deint_shader,
++            {"no", 0}, {"yes", 1}, {"auto", -1})},
+         {"gamma-factor", OPT_FLOAT(gamma), M_RANGE(0.1, 2.0),
+             .deprecation_message = "no replacement"},
+         {"gamma-auto", OPT_FLAG(gamma_auto),
+@@ -828,6 +830,11 @@
+             .padding = padding,
+         };
+ 
++        if (p->opts.deint_shader == -1)
++            img[n].interlaced = !!(vimg->mpi->fields & MP_IMGFIELD_INTERLACED);
++        else if (p->opts.deint_shader == 1)
++            img[n].interlaced = 1;
++
+         for (int i = 0; i < 4; i++)
+             img[n].components += !!p->ra_format.components[n][i];
+ 
+@@ -1356,8 +1363,22 @@
+         img.multiplier *= 1.0 / (tex_max - 1);
+     }
+ 
+-    GLSLF("color.%s = %f * vec4(texture(texture%d, texcoord%d)).%s;\n",
+-          dst, img.multiplier, id, id, src);
++    if (img.interlaced) {
++        // Simple "blend" deinterlacer based on vlc's deinterlace/algo_basic.c
++        // The two fields are averaged together to produce one frame.
++        // Each line output is the input line averaged with the previous line.
++        // The very first line is copied exactly (albeit by averaging itself).
++        GLSLF("float yprev%d = texcoord%d.y == 0.0 ? 0.0 : "
++                              "texcoord%d.y - 1.0 / texture_size%d.y;\n",
++              id, id, id, id);
++        GLSLF("vec2 prev%d = vec2(texcoord%d.x, yprev%d);\n", id, id, id);
++        GLSLF("color.%s = %f * mix(texture(texture%d, texcoord%d), "
++                                  "texture(texture%d, prev%d), 0.5).%s;\n",
++              dst, img.multiplier, id, id, id, id, src);
++    } else {
++        GLSLF("color.%s = %f * vec4(texture(texture%d, texcoord%d)).%s;\n",
++              dst, img.multiplier, id, id, src);
++    }
+ 
+     *offset += count;
+ }
+@@ -2155,7 +2176,8 @@
+     // If any textures are still in integer format by this point, we need
+     // to introduce an explicit conversion pass to avoid breaking hooks/scaling
+     for (int n = 0; n < 4; n++) {
+-        if (img[n].tex && img[n].tex->params.format->ctype == RA_CTYPE_UINT) {
++        if (img[n].tex && (img[n].tex->params.format->ctype == RA_CTYPE_UINT ||
++                           img[n].interlaced)) {
+             GLSLF("// use_integer fix for plane %d\n", n);
+             copy_image(p, &(int){0}, img[n]);
+             pass_describe(p, "use_integer fix");
+@@ -3841,6 +3863,7 @@
+             .tex_pad_y = p->opts.tex_pad_y,
+             .tone_map = p->opts.tone_map,
+             .early_flush = p->opts.early_flush,
++            .deint_shader = p->opts.deint_shader,
+             .icc_opts = p->opts.icc_opts,
+             .hwdec_interop = p->opts.hwdec_interop,
+             .target_trc = p->opts.target_trc,
+
+--- ./src/mpv-0.35.1/video/out/gpu/video.h
++++ ./src/mpv-0.35.1/video/out/gpu/video.h
+@@ -171,6 +171,7 @@
+     int early_flush;
+     char *shader_cache_dir;
+     char *hwdec_interop;
++    int deint_shader;
+ };
+ 
+ extern const struct m_sub_options gl_video_conf;
+
+--- ./src/mpv-0.35.1/video/out/gpu/video_shaders.c
++++ ./src/mpv-0.35.1/video/out/gpu/video_shaders.c
+@@ -387,11 +387,13 @@
+               gl_sc_bvec(sc, 3));
+         break;
+     case MP_CSP_TRC_PQ:
+-        GLSLF("color.rgb = pow(color.rgb, vec3(1.0/%f));\n", PQ_M2);
+-        GLSLF("color.rgb = max(color.rgb - vec3(%f), vec3(0.0)) \n"
+-              "             / (vec3(%f) - vec3(%f) * color.rgb);\n",
++        gl_sc_paddf(sc, "highp vec3 pq_rgb;");
++        GLSLF("pq_rgb = color.rgb;\n");
++        GLSLF("pq_rgb = pow(pq_rgb, vec3(%f));\n", 1.0/PQ_M2);
++        GLSLF("pq_rgb = max(pq_rgb - vec3(%f), vec3(0.0)) \n"
++              "             / (vec3(%f) - vec3(%f) * pq_rgb);\n",
+               PQ_C1, PQ_C2, PQ_C3);
+-        GLSLF("color.rgb = pow(color.rgb, vec3(%f));\n", 1.0 / PQ_M1);
++        GLSLF("color.rgb = pow(pq_rgb, vec3(%f));\n", 1.0/PQ_M1);
+         // PQ's output range is 0-10000, but we need it to be relative to
+         // MP_REF_WHITE instead, so rescale
+         GLSLF("color.rgb *= vec3(%f);\n", 10000 / MP_REF_WHITE);
+@@ -860,7 +862,8 @@
+     // operations needs it
+     bool need_linear = src.gamma != dst.gamma ||
+                        src.primaries != dst.primaries ||
+-                       src.sig_peak != dst.sig_peak ||
++                       src.sig_peak > dst.sig_peak ||
++                       (src.sig_peak != dst.sig_peak && !mp_trc_is_hdr(dst.gamma)) ||
+                        need_ootf;
+ 
+     if (need_linear && !is_linear) {
+
+--- ./src/mpv-0.35.1/video/out/opengl/formats.c
++++ ./src/mpv-0.35.1/video/out/opengl/formats.c
+@@ -5,6 +5,7 @@
+     // --- GL type aliases (for readability)
+     T_U8        = GL_UNSIGNED_BYTE,
+     T_U16       = GL_UNSIGNED_SHORT,
++    T_HFL       = GL_HALF_FLOAT,
+     T_FL        = GL_FLOAT,
+ };
+ 
+@@ -85,6 +86,20 @@
+     {"rgb16f",  GL_RGB16F,   GL_RGB,             T_FL,  F_F16 | F_TF | F_ES3},
+     {"rgba16f", GL_RGBA16F,  GL_RGBA,            T_FL,  F_F16 | F_TF | F_ES3},
+ 
++    // Support GL_HALF_FLOATs as well (sans-F_F16).
++    {"r16f",    GL_R16F,     GL_RED,             T_HFL,         F_CF | F_GL3 | F_GL2F},
++    {"rg16f",   GL_RG16F,    GL_RG,              T_HFL,         F_CF | F_GL3 | F_GL2F},
++    {"rgb16f",  GL_RGB16F,   GL_RGB,             T_HFL,         F_CF | F_GL3 | F_GL2F},
++    {"rgba16f", GL_RGBA16F,  GL_RGBA,            T_HFL,         F_CF | F_GL3 | F_GL2F},
++    {"r16f",    GL_R16F,     GL_RED,             T_HFL,         F_CF | F_ES32 | F_EXTF16},
++    {"rg16f",   GL_RG16F,    GL_RG,              T_HFL,         F_CF | F_ES32 | F_EXTF16},
++    {"rgb16f",  GL_RGB16F,   GL_RGB,             T_HFL,         F_TF | F_ES32 | F_EXTF16},
++    {"rgba16f", GL_RGBA16F,  GL_RGBA,            T_HFL,         F_CF | F_ES32 | F_EXTF16},
++    {"r16f",    GL_R16F,     GL_RED,             T_HFL,         F_TF | F_ES3},
++    {"rg16f",   GL_RG16F,    GL_RG,              T_HFL,         F_TF | F_ES3},
++    {"rgb16f",  GL_RGB16F,   GL_RGB,             T_HFL,         F_TF | F_ES3},
++    {"rgba16f", GL_RGBA16F,  GL_RGBA,            T_HFL,         F_TF | F_ES3},
++
+     // These might be useful as FBO formats.
+     {"rgb10_a2",GL_RGB10_A2, GL_RGBA,
+      GL_UNSIGNED_INT_2_10_10_10_REV,                    F_CF | F_GL3 | F_ES3},
+@@ -123,7 +138,7 @@
+ {
+     if (!format)
+         return 0;
+-    if (format->type == GL_FLOAT)
++    if (format->type == GL_FLOAT || format->type == GL_HALF_FLOAT)
+         return MPGL_TYPE_FLOAT;
+     if (gl_integer_format_to_base(format->format))
+         return MPGL_TYPE_UINT;
+@@ -152,6 +167,7 @@
+     switch (type) {
+     case GL_UNSIGNED_BYTE:                      return 1;
+     case GL_UNSIGNED_SHORT:                     return 2;
++    case GL_HALF_FLOAT:                         return 2;
+     case GL_FLOAT:                              return 4;
+     }
+     return 0;
+
+--- ./src/mpv-0.35.1/waftools/fragments/ios_eagl.m
++++ ./src/mpv-0.35.1/waftools/fragments/ios_eagl.m
+@@ -0,0 +1,3 @@
++#include <OpenGLES/EAGL.h>
++int main(int argc, char **argv)
++{ (void)EAGLGetVersion; return 0; }
+
+--- ./src/mpv-0.35.1/wscript
++++ ./src/mpv-0.35.1/wscript
+@@ -753,7 +753,11 @@
+     } , {
+         'name': '--ios-gl',
+         'desc': 'iOS OpenGL ES hardware decoding interop support',
+-        'func': check_statement('OpenGLES/ES3/glext.h', '(void)GL_RGB32F'),  # arbitrary OpenGL ES 3.0 symbol
++        'func': check_cc(
++            fragment=load_fragment('ios_eagl.m'),
++            framework_name=['OpenGLES'],
++            compile_filename='ios_eagl.m'
++        )
+     } , {
+         'name': '--plain-gl',
+         'desc': 'OpenGL without platform-specific code (e.g. for libmpv)',
