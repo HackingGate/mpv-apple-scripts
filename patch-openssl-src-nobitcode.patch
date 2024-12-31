@@ -1,0 +1,27 @@
+diff --git forkSrcPrefix/nghttp2/nghttp2-build.sh forkDstPrefix/nghttp2/nghttp2-build.sh
+index bd368c603b972d657ddfae41f35e840d6351d66a..3d21512ddbfe2a52244ab66e0e702bc246789392 100755
+--- forkSrcPrefix/nghttp2/nghttp2-build.sh
++++ forkDstPrefix/nghttp2/nghttp2-build.sh
+@@ -561,14 +561,14 @@ lipo \
+ fi
+ 
+ echo -e "${bold}Building iOS libraries (bitcode)${dim}"
+-buildIOS "armv7" "bitcode"
+-buildIOS "armv7s" "bitcode"
+-buildIOS "arm64" "bitcode"
+-buildIOS "arm64e" "bitcode"
+-
+-buildIOSsim "x86_64" "bitcode"
+-buildIOSsim "arm64" "bitcode"
+-buildIOSsim "i386" "bitcode"
++buildIOS "armv7" "nobitcode"
++buildIOS "armv7s" "nobitcode"
++buildIOS "arm64" "nobitcode"
++buildIOS "arm64e" "nobitcode"
++
++buildIOSsim "x86_64" "nobitcode"
++buildIOSsim "arm64" "nobitcode"
++buildIOSsim "i386" "nobitcode"
+ 
+ lipo \
+ 	"${NGHTTP2}/iOS/armv7/lib/libnghttp2.a" \

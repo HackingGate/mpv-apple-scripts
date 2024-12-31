@@ -1,6 +1,7 @@
 #!/bin/sh -e
 
 OPENSSL_VERSION="1.1.1w"
+LIBCURL_VERSION="7.88.1"
 IOS_SDK_VERSION=$(xcrun -sdk iphoneos --show-sdk-version)
 TVOS_SDK_VERSION=$(xcrun -sdk appletvos --show-sdk-version)
 
@@ -15,8 +16,10 @@ rm -rf openssl
 rm -rf openssl-src
 git clone https://github.com/jasonacox/Build-OpenSSL-cURL.git openssl-src/
 cd openssl-src
+git checkout v7.83.1
+# git apply ../patch-openssl-src-nobitcode.patch
 
-./build.sh -o $OPENSSL_VERSION
+./build.sh -o $OPENSSL_VERSION -c $LIBCURL_VERSION
 
 cd ..
 mkdir -p openssl/$IOS_FOLDER
