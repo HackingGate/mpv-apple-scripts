@@ -1,5 +1,7 @@
 #!/bin/sh
 set -e
+current_path=$(dirname "$(readlink -f "$0")")
+echo "PATCH_PATH $current_path/patch-waf.diff"
 
 OPTS="--prefix=$SCRATCH/$ARCH \
 	--exec-prefix=$SCRATCH/$ARCH \
@@ -22,6 +24,10 @@ if [[ "$ENVIRONMENT" = "development" ]]; then
 fi
 
 cd $SRC/mpv*
+
+# 刪除 waf 文件夾以免重複 patch 問題
+rm -rf .waf3-2.0.9-10a533182bd85c3f45a157fb5d62db50
 ./bootstrap.py
+patch -p0 <$current_path/patch-waf.diff
 ./waf configure $OPTS
 ./waf build -j4

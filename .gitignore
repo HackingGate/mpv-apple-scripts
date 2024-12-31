@@ -1,4 +1,12 @@
-lib/
+openssl-src/
+lib-ios/
+lib-tv/
 downloads/
 src/
-scratch/
+scratch-ios/
+scratch-tv/
+openssl-ios/
+openssl-tv/
+openssl/
+lib/
+.DS_Store

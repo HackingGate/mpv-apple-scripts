@@ -1,0 +1,24 @@
+--- .waf3-2.0.9-10a533182bd85c3f45a157fb5d62db50/waflib/ConfigSet.py
++++ .waf3-2.0.9-10a533182bd85c3f45a157fb5d62db50/waflib/ConfigSet.py
+@@ -146,7 +146,7 @@
+ 		Utils.writef(filename,''.join(buf))
+ 	def load(self,filename):
+ 		tbl=self.table
+-		code=Utils.readf(filename,m='rU')
++		code=Utils.readf(filename,m='r')
+ 		for m in re_imp.finditer(code):
+ 			g=m.group
+ 			tbl[g(2)]=eval(g(3))
+
+--- .waf3-2.0.9-10a533182bd85c3f45a157fb5d62db50/waflib/Context.py
++++ .waf3-2.0.9-10a533182bd85c3f45a157fb5d62db50/waflib/Context.py
+@@ -346,7 +346,7 @@
+ 		pass
+ 	module=imp.new_module(WSCRIPT_FILE)
+ 	try:
+-		code=Utils.readf(path,m='rU',encoding=encoding)
++		code=Utils.readf(path,m='r',encoding=encoding)
+ 	except EnvironmentError:
+ 		raise Errors.WafError('Could not read the file %r'%path)
+ 	module_dir=os.path.dirname(path)
+
